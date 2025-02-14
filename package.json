@@ -1,0 +1,22 @@
+{
+  "name": "securechat",
+  "version": "1.0.0",
+  "description": "Secure WebSocket Chat Application",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "chat",
+    "securechat",
+    "websockets"
+  ],
+  "author": "Your Name",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^3.0.0",
+    "crypto-js": "^4.2.0",
+    "dotenv": "^16.4.7",
+    "mongoose": "^8.10.0"
+  }
+}
