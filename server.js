@@ -2,30 +2,35 @@ require('dotenv').config();
 const fs = require('fs');
 const https = require('https');
 const WebSocket = require('ws');
-const connectDB = require('./mongodb_connect'); // Import MongoDB connection
+const connectDB = require('./mongodb_connect'); 
 const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
 
-// Load SSL certificates
+//Load SSL certificates
 const options = {
     key: fs.readFileSync('./key.pem'),
     cert: fs.readFileSync('./cert.pem')
 };
 
 
-// Connect to MongoDB
+// Rate limiting
+const rateLimitWindow = 10000; // 10 seconds
+const maxMessages = 5;
+const messageCounts = new Map(); 
+
+//Connects to MongoDB
 connectDB().then(() => {
     const db = mongoose.connection;
     const usersCollection = db.collection("users");
     const messagesCollection = db.collection("messages");
 
-    // Create an HTTPS server
+    //Createss an HTTPS server
     const httpsServer = https.createServer(options);
     httpsServer.listen(8080, () => {
         console.log('Secure WebSocket server running on wss://192.168.1.25:8080');
     });
 
-    // Create WebSocket server over HTTPS
+    //Create WebSocket server over HTTPS
     const wss = new WebSocket.Server({ server: httpsServer });
 
     const clients = new Map();
@@ -44,6 +49,32 @@ connectDB().then(() => {
 
                 if (msgObj.type === 'login') {
                     await handleLogin(ws, msgObj);
+                    return;
+                }
+
+                const username = clients.get(ws);
+
+                if (!username) {
+                    ws.send(JSON.stringify({ error: "You must log in first." }));
+                    return;
+                }
+
+               
+                const now = Date.now();
+                if (!messageCounts.has(username)) {
+                    messageCounts.set(username, []);
+                }
+
+                const timestamps = messageCounts.get(username);
+                timestamps.push(now);
+
+                // Remove timestamps older than the rate limit window
+                while (timestamps.length > 0 && now - timestamps[0] > rateLimitWindow) {
+                    timestamps.shift();
+                }
+
+                if (timestamps.length > maxMessages) {
+                    ws.send(JSON.stringify({ error: "Rate limit exceeded. Please wait before sending more messages." }));
                     return;
                 }
 
@@ -113,7 +144,7 @@ connectDB().then(() => {
         const now = new Date();
         msgObj.timestamp = now.toISOString();
         msgObj.sender = username;
-        msgObj.message = sanitizeInput(msgObj.message); // Sanitize message before storing
+        msgObj.message = sanitizeInput(msgObj.message); 
 
         await messagesCollection.insertOne(msgObj); // Store in MongoDB
 
