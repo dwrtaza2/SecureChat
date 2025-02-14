@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SecureChat</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+</head>
+<body>
+    <h2>SecureChat</h2>
+
+    <h3>Sign Up</h3>
+    <input type="text" id="signup-username" placeholder="Choose a username">
+    <input type="password" id="signup-password" placeholder="Choose a password">
+    <button onclick="signup()">Sign Up</button>
+
+    <h3>Login</h3>
+    <input type="text" id="login-username" placeholder="Enter your username">
+    <input type="password" id="login-password" placeholder="Enter your password">
+    <button onclick="login()">Login</button>
+
+    <br>
+    <input type="text" id="message" placeholder="Type a message">
+    <button onclick="sendMessage()">Send</button>
+
+    <div id="chat"></div>
+
+    <script>
+        let ws;
+        let username;
+        const RECONNECT_INTERVAL = 5000; // 5 seconds
+
+        function hashData(data) {
+            return CryptoJS.SHA256(data).toString();
+        }
+
+        function showPopup(message, type = "success") {
+            alert(`${type.toUpperCase()}: ${message}`);
+        }
+
+        function sanitizeInput(input) {
+            const forbiddenChars = /[&<>\"'`]/g;
+            if (forbiddenChars.test(input)) {
+                showPopup("Invalid input: special characters are not allowed.", "error");
+                return null;
+            }
+            return input;
+        }
+
+        function signup() {
+            let signupUsername = sanitizeInput(document.getElementById("signup-username").value.trim());
+            let signupPassword = document.getElementById("signup-password").value.trim();
+            if (!signupUsername || !signupPassword) return;
+            const hashedPassword = hashData(signupPassword);
+            connectWebSocket("signup", signupUsername, hashedPassword);
+        }
+
+        function login() {
+            username = sanitizeInput(document.getElementById("login-username").value.trim());
+            let password = document.getElementById("login-password").value.trim();
+            if (!username || !password) return;
+            const hashedPassword = hashData(password);
+            connectWebSocket("login", username, hashedPassword);
+        }
+
+        function connectWebSocket(type, username, password) {
+            ws = new WebSocket("wss://192.168.1.25:8080");
+
+            ws.onopen = () => {
+                console.log("Connected to WebSocket server");
+                ws.send(JSON.stringify({ type, username, password }));
+            };
+
+            ws.onmessage = (event) => {
+                console.log("Received message:", event.data);
+                const msg = JSON.parse(event.data);
+                const chat = document.getElementById("chat");
+
+                if (msg.status === "success") {
+                    showPopup(msg.message, "success");
+                } else if (msg.error) {
+                    showPopup(msg.error, "error");
+                }
+
+                if (msg.sender && msg.message) {
+                    let formattedTimestamp = new Date(msg.timestamp).toLocaleString(undefined, {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: false
+                    }).replace(',', '');
+
+                    chat.innerHTML += `<p><strong>${msg.sender}:</strong> ${msg.message} <em>(${formattedTimestamp})</em></p>`;
+                }
+            };
+
+            ws.onerror = (error) => {
+                console.error("WebSocket Error:", error);
+                showPopup("WebSocket connection error. Ensure the server is running and the certificate is trusted.", "error");
+            };
+
+            ws.onclose = () => {
+                console.log("Disconnected from WebSocket server. Attempting to reconnect...");
+                setTimeout(() => {
+                    if (username) {
+                        connectWebSocket("login", username, "");
+                    }
+                }, RECONNECT_INTERVAL);
+            };
+        }
+
+        function sendMessage() {
+            let message = sanitizeInput(document.getElementById("message").value.trim());
+            if (!message) return;
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showPopup("WebSocket connection is not open. Please log in again.", "error");
+                return;
+            }
+            const nowDate = new Date();
+            const localTimestamp = nowDate.toISOString();
+
+            const msgObj = { sender: username, message: message, timestamp: localTimestamp };
+            console.log("Sending message:", msgObj);
+            ws.send(JSON.stringify(msgObj));
+            document.getElementById("message").value = "";
+        }
+    </script>
+</body>
+</html>
