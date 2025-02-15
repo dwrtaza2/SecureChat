@@ -54,6 +54,8 @@ Copy the MongoDB Connection String and modify it in the .env file:
 
  MONGO_URI=mongodb+srv://USERNAME:PASSWORD@your-cluster.mongodb.net/SecureChatDB?retryWrites=true&w=majority
 Replace USERNAME and PASSWORD with your MongoDB credentials.
+
+
 For ease of usability, I will include our database Username and Password to you on Canvas, not here on GitHub
 
 
