@@ -5,7 +5,7 @@ const connectDB = async () => {
     try {
         await mongoose.connect(process.env.MONGODB_URI, {
             tls: true,
-            tlsAllowInvalidCertificates: true
+           
         });
         console.log('MongoDB connected');
     } catch (err) {
