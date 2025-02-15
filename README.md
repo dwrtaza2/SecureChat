@@ -1,4 +1,8 @@
 SecureChat User Guide
+
+
+
+
 Introduction
 SecureChat is a WebSocket-based chat application that provides real-time communication with secure authentication using hashed passwords. This guide walks you through the steps to install and set up SecureChat on your local machine and client machine as well.
 1. Prerequisites
