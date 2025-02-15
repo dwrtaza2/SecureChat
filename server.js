@@ -153,7 +153,7 @@ connectDB().then(() => {
 
     function broadcast(message) {
         const msgString = JSON.stringify(message);
-        clients.forEach((clientUsername, client) => {
+        clients.forEach((_clientUsername, client) => {
             if (client.readyState === WebSocket.OPEN) {
                 client.send(msgString);
             }

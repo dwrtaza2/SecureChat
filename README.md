@@ -38,6 +38,8 @@ openssl req -nodes -new -x509 -keyout key.pem -out cert.pem
 You'll be prompted to enter information like Country Name, State, Organization Name, and Common Name (CN). For local testing, you can leave most fields blank and just press Enter.
 Make sure that both cert.pem and key.pem are in the project folder.
 
+Transporting SSL Certificates:
+For now we are using usb for cert.pem.
 
 
 5. Configure Environment Variables
@@ -85,3 +87,9 @@ If the client doesn’t connect, verify WebSocket and TLS certificates. The cert
 Implement message encryption for end-to-end security.
 Improve UI/UX for a better chat experience.
 The ability to transfer certificates more effectively
+
+Sources: 
+
+https://npmjs.com/package/ws
+https://www.cloudflare.com/learning/ssl/what-is-ssl/
+https://openai.com/index/chatgpt/
