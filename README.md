@@ -87,12 +87,11 @@ If the client doesn’t connect, verify WebSocket and TLS certificates. The cert
 Implement message encryption for end-to-end security.
 Improve UI/UX for a better chat experience.
 The ability to transfer certificates more effectively
-
 Sources: 
-
+https://openai.com/index/chatgpt/
 https://www.npmjs.com/package/ws#external-https-server
 https://www.cloudflare.com/learning/ssl/what-is-ssl/
-https://openai.com/index/chatgpt/
+
 
 
 
