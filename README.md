@@ -69,7 +69,7 @@ To start the WebSocket server, run:
 node server.js
 If everything is set up correctly, you should see:
 MongoDB connected  
-Secure WebSocket server running on wss://192.168.1.25:8080
+Secure WebSocket server running on wss://"":8080
 
 
 7. Running the Client
