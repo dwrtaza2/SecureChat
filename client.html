@@ -5,6 +5,44 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SecureChat</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <style>
+        #app {
+            display: flex;
+            height: 100vh;
+        }
+
+        #user-list {
+            width: 25%;
+            border-right: 1px solid #ccc;
+            padding: 10px;
+            overflow-y: auto;
+        }
+
+        #chat-window {
+            width: 75%;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #chat {
+            flex: 1;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+        #users li {
+            cursor: pointer;
+            padding: 5px;
+            border-bottom: 1px solid #ccc;
+        }
+
+        #users li:hover {
+            background-color: #f0f0f0;
+        }
+    </style>
 </head>
 <body>
     <h2>SecureChat</h2>
@@ -20,10 +58,29 @@
     <button onclick="login()">Login</button>
 
     <br>
+    <br>
+    <br>
+    <br>
+    <br>
+
     <input type="text" id="message" placeholder="Type a message">
     <button onclick="sendMessage()">Send</button>
 
-    <div id="chat"></div>
+    <div id="app">
+        <div id="user-list">
+            <h3>Users</h3>
+            <ul id="users">
+                <!-- User list will be dynamically populated -->
+            </ul>
+        </div>
+
+        <div id="chat-window">
+            <h3 id="chat-header">Chat</h3>
+            <div id="chat"></div>
+            <input type="text" id="message" placeholder="Type a message">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
 
     <script>
         let ws;
@@ -61,6 +118,7 @@
             if (!username || !password) return;
             const hashedPassword = hashData(password);
             connectWebSocket("login", username, hashedPassword);
+            loadUserList();
         }
 
         function connectWebSocket(type, username, password) {
