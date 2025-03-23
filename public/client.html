@@ -25,6 +25,7 @@
   </div>
 
   <div id="chat-section" style="display: none;">
+    <input type="text" id="searchUser" placeholder="Search users..." oninput="filterUsers()" />
     <select id="recipient"></select>
     <div id="chat-container">
       <div id="message-area"></div>
@@ -38,6 +39,7 @@
 
   <script>
     let ws, aesKey, username, publicKey, privateKey;
+    let allUsernames = [];
 
     async function signup() {
       send({ type: 'signup', username: getU(), password: getP() });
@@ -49,27 +51,27 @@
       ws = new WebSocket('wss://localhost:8080');
 
       ws.onopen = () => {
+        console.log('✅ WebSocket connection opened');
         send({ type: 'login', username, password });
       };
 
       ws.onmessage = async (event) => {
         const msg = JSON.parse(event.data);
+        console.log('📩 Received message:', msg);
+
         if (msg.type === 'error') return alert(msg.message);
         if (msg.type === 'success') return alert(msg.message);
 
         if (msg.type === 'login-success') {
-          // RSA key exchange
           const keyPair = await window.crypto.subtle.generateKey({
             name: 'RSA-OAEP', modulusLength: 4096, publicExponent: new Uint8Array([1, 0, 1]),
-            hash: 'SHA-256',
+            hash: 'SHA-256'
           }, true, ['encrypt', 'decrypt']);
 
           publicKey = keyPair.publicKey;
           privateKey = keyPair.privateKey;
 
-          aesKey = await crypto.subtle.generateKey({
-            name: 'AES-CBC', length: 256
-          }, true, ['encrypt', 'decrypt']);
+          aesKey = await crypto.subtle.generateKey({ name: 'AES-CBC', length: 256 }, true, ['encrypt', 'decrypt']);
 
           const exportedAES = await crypto.subtle.exportKey('raw', aesKey);
           const importedServerKey = await window.crypto.subtle.importKey(
@@ -80,9 +82,12 @@
           const encryptedKey = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, importedServerKey, exportedAES);
           send({ type: 'aes-key', encryptedKey: btoa(ab2str(encryptedKey)) });
 
+          //Show chat UI after login
           document.getElementById('auth-section').style.display = 'none';
           document.getElementById('chat-section').style.display = 'block';
-          document.getElementById('recipient').innerHTML = '';
+
+          allUsernames = msg.users || [];
+          populateRecipientDropdown(allUsernames);
         }
 
         if (msg.type === 'chat') {
@@ -96,13 +101,21 @@
           div.scrollTop = div.scrollHeight;
         }
       };
+
+      ws.onerror = (e) => {
+        console.error('❌ WebSocket error:', e);
+        alert('WebSocket error. Is the server running?');
+      };
     }
 
     function sendMessage() {
       const text = document.getElementById('messageInput').value;
+      if (!text.trim()) return;
       document.getElementById('messageInput').value = '';
+
       const encoder = new TextEncoder();
       const iv = crypto.getRandomValues(new Uint8Array(16));
+
       crypto.subtle.encrypt({ name: 'AES-CBC', iv }, aesKey, encoder.encode(text)).then(encrypted => {
         const buffer = new Uint8Array([...iv, ...new Uint8Array(encrypted)]);
         send({ type: 'chat', recipient: document.getElementById('recipient').value, encryptedMessage: btoa(ab2str(buffer)) });
@@ -131,6 +144,23 @@
         bufView[i] = str.charCodeAt(i);
       }
       return buf;
+    }
+
+    function populateRecipientDropdown(users) {
+      const recipientDropdown = document.getElementById('recipient');
+      recipientDropdown.innerHTML = '';
+      users.forEach(user => {
+        const option = document.createElement('option');
+        option.value = user;
+        option.textContent = user;
+        recipientDropdown.appendChild(option);
+      });
+    }
+
+    function filterUsers() {
+      const searchValue = document.getElementById('searchUser').value.toLowerCase();
+      const filtered = allUsernames.filter(u => u.toLowerCase().includes(searchValue));
+      populateRecipientDropdown(filtered);
     }
   </script>
 </body>
