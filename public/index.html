@@ -1,4 +1,4 @@
-<!-- public/client.html -->
+<!-- public/index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -60,24 +60,47 @@
 
       ws.onmessage = async (event) => {
         const msg = JSON.parse(event.data);
-        console.log("Message received from server:", msg); // Debugging
+        console.log("Message received from server:", msg);
 
         if (msg.type === 'error') {
-            alert(msg.message);
-            return;
+          alert(msg.message);
+          return;
         }
 
         if (msg.type === 'login-success') {
-            alert(msg.message); // Show success message
-            loadChatInterface(); // Switch to the chat interface
-            populateRecipientDropdown(msg.users); // Populate the recipient dropdown
+          alert(msg.message);
+          loadChatInterface();
+          populateRecipientDropdown(msg.users);
+          allUsernames = msg.users || [];
+
+          const keyPair = await window.crypto.subtle.generateKey({
+            name: 'RSA-OAEP', modulusLength: 4096, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256'
+          }, true, ['encrypt', 'decrypt']);
+          publicKey = keyPair.publicKey;
+          privateKey = keyPair.privateKey;
+
+          aesKey = await crypto.subtle.generateKey({ name: 'AES-CBC', length: 256 }, true, ['encrypt', 'decrypt']);
+
+          const exportedAES = await crypto.subtle.exportKey('raw', aesKey);
+          const importedServerKey = await window.crypto.subtle.importKey(
+            'spki', str2ab(atob(msg.publicKey)),
+            { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['encrypt']
+          );
+
+          const encryptedKey = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, importedServerKey, exportedAES);
+          send({ type: 'aes-key', encryptedKey: btoa(ab2str(encryptedKey)) });
+        }
+
+        if (msg.type === 'chat') {
+          const buffer = str2ab(atob(msg.encryptedMessage));
+          const iv = buffer.slice(0, 16);
+          const data = buffer.slice(16);
+          const decrypted = await crypto.subtle.decrypt({ name: 'AES-CBC', iv }, aesKey, data);
+          const text = new TextDecoder().decode(decrypted);
+          appendMessage(msg.from, text);
         }
       };
-      function loadChatInterface() {
-        console.log("Switching to chat interface"); // Debugging
-        document.getElementById("auth-section").style.display = "none"; // Hide login/signup section
-        document.getElementById("chat-section").style.display = "block"; // Show chat section
-    }
+
       ws.onerror = (e) => {
         console.error('❌ WebSocket error:', e);
         alert('WebSocket error. Is the server running?');
@@ -86,16 +109,31 @@
 
     function sendMessage() {
       const text = document.getElementById('messageInput').value;
-      if (!text.trim()) return;
+      const recipient = document.getElementById('recipient').value;
+      if (!text.trim() || !recipient) return;
       document.getElementById('messageInput').value = '';
+
+      appendMessage('You', text); // show own message immediately
 
       const encoder = new TextEncoder();
       const iv = crypto.getRandomValues(new Uint8Array(16));
 
       crypto.subtle.encrypt({ name: 'AES-CBC', iv }, aesKey, encoder.encode(text)).then(encrypted => {
         const buffer = new Uint8Array([...iv, ...new Uint8Array(encrypted)]);
-        send({ type: 'chat', recipient: document.getElementById('recipient').value, encryptedMessage: btoa(ab2str(buffer)) });
+        send({ type: 'chat', recipient, encryptedMessage: btoa(ab2str(buffer)) });
       });
+    }
+
+    function appendMessage(sender, message) {
+      const div = document.getElementById('message-area');
+      div.innerHTML += `<p><b>${sender}:</b> ${formatText(message)}</p>`;
+      div.scrollTop = div.scrollHeight;
+    }
+
+    function loadChatInterface() {
+      console.log("Switching to chat interface");
+      document.getElementById("auth-section").style.display = "none";
+      document.getElementById("chat-section").style.display = "block";
     }
 
     function getU() { return document.getElementById('username').value; }
@@ -141,13 +179,12 @@
 
     function populateUserDropdown(users) {
       const dropdown = document.getElementById("user-dropdown");
-      dropdown.innerHTML = ""; // Clear existing options
-
+      dropdown.innerHTML = "";
       users.forEach((user) => {
-          const option = document.createElement("option");
-          option.value = user;
-          option.textContent = user;
-          dropdown.appendChild(option);
+        const option = document.createElement("option");
+        option.value = user;
+        option.textContent = user;
+        dropdown.appendChild(option);
       });
     }
   </script>
