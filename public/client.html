@@ -25,7 +25,6 @@
   </div>
 
   <div id="chat-section" style="display: none;">
-    <input type="text" id="searchUser" placeholder="Search users..." oninput="filterUsers()" />
     <select id="recipient"></select>
     <div id="chat-container">
       <div id="message-area"></div>
@@ -39,7 +38,6 @@
 
   <script>
     let ws, aesKey, username, publicKey, privateKey;
-    let allUsernames = [];
 
     async function signup() {
       send({ type: 'signup', username: getU(), password: getP() });
@@ -84,10 +82,7 @@
 
           document.getElementById('auth-section').style.display = 'none';
           document.getElementById('chat-section').style.display = 'block';
-
-          // Populate users dropdown
-          allUsernames = msg.users || [];
-          populateRecipientDropdown(allUsernames);
+          document.getElementById('recipient').innerHTML = '';
         }
 
         if (msg.type === 'chat') {
@@ -136,23 +131,6 @@
         bufView[i] = str.charCodeAt(i);
       }
       return buf;
-    }
-
-    function populateRecipientDropdown(users) {
-      const recipientDropdown = document.getElementById('recipient');
-      recipientDropdown.innerHTML = '';
-      users.forEach(user => {
-        const option = document.createElement('option');
-        option.value = user;
-        option.textContent = user;
-        recipientDropdown.appendChild(option);
-      });
-    }
-
-    function filterUsers() {
-      const searchValue = document.getElementById('searchUser').value.toLowerCase();
-      const filtered = allUsernames.filter(u => u.toLowerCase().includes(searchValue));
-      populateRecipientDropdown(filtered);
     }
   </script>
 </body>

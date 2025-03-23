@@ -1,165 +1,146 @@
-require('dotenv').config();
+// ============================
+// SecureChat v2 - server.js (with user list support)
+// ============================
+
 const fs = require('fs');
 const https = require('https');
+const path = require('path');
+const express = require('express');
 const WebSocket = require('ws');
-const connectDB = require('./mongodb_connect'); 
-const bcrypt = require('bcryptjs');
 const mongoose = require('mongoose');
+const dotenv = require('dotenv');
+const bcrypt = require('bcryptjs');
+const { decryptMessage, encryptMessage, generateRSAKeys, encryptAESKeyWithRSA, decryptAESKeyWithRSA } = require('./utils/cryptoUtils');
+const bruteForce = require('./utils/bruteForceTracker');
+const connectDB = require('./mongodb_connect');
+const User = require('./models/User');
 
-//Load SSL certificates
-const options = {
-    key: fs.readFileSync('./key.pem'),
-    cert: fs.readFileSync('./cert.pem')
-};
+dotenv.config();
+connectDB();
 
+const app = express();
+const PORT = 8080;
 
-// Rate limiting
-const rateLimitWindow = 10000; // 10 seconds
-const maxMessages = 5;
-const messageCounts = new Map(); 
+// SSL Config
+const server = https.createServer({
+  key: fs.readFileSync(path.join(__dirname, 'ssl/key.pem')),
+  cert: fs.readFileSync(path.join(__dirname, 'ssl/cert.pem'))
+}, app);
 
-//Connects to MongoDB
-connectDB().then(() => {
-    const db = mongoose.connection;
-    const usersCollection = db.collection("users");
-    const messagesCollection = db.collection("messages");
+// Serve static files (like client.html)
+app.use(express.static(path.join(__dirname, 'public')));
 
-    //Createss an HTTPS server
-    const httpsServer = https.createServer(options);
-    httpsServer.listen(8080, () => {
-        console.log('Secure WebSocket server running on wss://192.168.1.25:8080');
-    });
+// WebSocket Server
+const wss = new WebSocket.Server({ server });
 
-    //Create WebSocket server over HTTPS
-    const wss = new WebSocket.Server({ server: httpsServer });
+// Active connections with metadata
+const clients = new Map();
 
-    const clients = new Map();
+wss.on('connection', (ws) => {
+  console.log('✅ New WebSocket connection');
 
-    wss.on('connection', (ws) => {
-        console.log("New client connected");
+  ws.on('message', async (data) => {
+    try {
+      const msg = JSON.parse(data);
 
-        ws.on('message', async (message) => {
-            try {
-                const msgObj = JSON.parse(message);
+      // ========== SIGNUP ==========
+      if (msg.type === 'signup') {
+        if (!msg.username || !msg.password) return;
 
-                if (msgObj.type === 'signup') {
-                    await handleSignup(ws, msgObj);
-                    return;
-                }
-
-                if (msgObj.type === 'login') {
-                    await handleLogin(ws, msgObj);
-                    return;
-                }
-
-                const username = clients.get(ws);
-
-                if (!username) {
-                    ws.send(JSON.stringify({ error: "You must log in first." }));
-                    return;
-                }
-
-               
-                const now = Date.now();
-                if (!messageCounts.has(username)) {
-                    messageCounts.set(username, []);
-                }
-
-                const timestamps = messageCounts.get(username);
-                timestamps.push(now);
-
-                // Remove timestamps older than the rate limit window
-                while (timestamps.length > 0 && now - timestamps[0] > rateLimitWindow) {
-                    timestamps.shift();
-                }
-
-                if (timestamps.length > maxMessages) {
-                    ws.send(JSON.stringify({ error: "Rate limit exceeded. Please wait before sending more messages." }));
-                    return;
-                }
-
-                await handleMessage(ws, msgObj);
-            } catch (error) {
-                console.error("Error processing message:", error);
-            }
-        });
-
-        ws.on('close', () => {
-            const username = clients.get(ws);
-            console.log(`${username || 'A client'} disconnected`);
-            clients.delete(ws);
-        });
-    });
-
-    async function handleSignup(ws, msgObj) {
-        const existingUser = await usersCollection.findOne({ username: msgObj.username });
-        if (existingUser) {
-            ws.send(JSON.stringify({ error: "Username already taken." }));
-            return;
+        const existing = await User.findOne({ username: msg.username });
+        if (existing) {
+          ws.send(JSON.stringify({ type: 'error', message: 'User already exists.' }));
+          return;
         }
 
-        const hashedPassword = await bcrypt.hash(msgObj.password, 10);
-        await usersCollection.insertOne({ username: msgObj.username, password: hashedPassword });
+        const hash = await bcrypt.hash(msg.password, 10);
+        const newUser = new User({ username: msg.username, passwordHash: hash });
+        await newUser.save();
 
-        ws.send(JSON.stringify({ status: "success", message: "Signup successful. Please log in." }));
-    }
+        ws.send(JSON.stringify({ type: 'success', message: 'Signup successful.' }));
+        return;
+      }
 
-    async function handleLogin(ws, msgObj) {
-        const user = await usersCollection.findOne({ username: msgObj.username });
-        if (!user || !(await bcrypt.compare(msgObj.password, user.password))) {
-            ws.send(JSON.stringify({ error: "Invalid username or password." }));
-            return;
+      // ========== LOGIN ==========
+      if (msg.type === 'login') {
+        if (!msg.username || !msg.password) return;
+
+        const locked = bruteForce.isLocked(msg.username);
+        if (locked) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Too many failed attempts. Try again later.' }));
+          return;
         }
 
-        clients.set(ws, msgObj.username);
-        console.log(`${msgObj.username} logged in`);
-        ws.send(JSON.stringify({ status: "success", message: "Login successful." }));
-
-        // Send chat history to the user
-        const chatHistory = await messagesCollection.find().sort({ timestamp: -1 }).limit(10).toArray();
-        chatHistory.reverse().forEach(msg => ws.send(JSON.stringify(msg)));
-    }
-
-    function sanitizeInput(input) {
-        return input.replace(/[&<>"'`]/g, (char) => {
-            const charMap = {
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#39;',
-                '`': '&#96;'
-            };
-            return charMap[char];
-        });
-    }
-
-    async function handleMessage(ws, msgObj) {
-        if (!clients.has(ws)) {
-            ws.send(JSON.stringify({ error: "You must log in first." }));
-            return;
+        const user = await User.findOne({ username: msg.username });
+        if (!user || !(await bcrypt.compare(msg.password, user.passwordHash))) {
+          bruteForce.recordFailure(msg.username);
+          ws.send(JSON.stringify({ type: 'error', message: 'Invalid credentials.' }));
+          return;
         }
 
-        const username = clients.get(ws);
-        const now = new Date();
-        msgObj.timestamp = now.toISOString();
-        msgObj.sender = username;
-        msgObj.message = sanitizeInput(msgObj.message); 
+        bruteForce.clearFailures(msg.username);
+        ws.username = msg.username;
+        const rsaKeys = generateRSAKeys();
+        clients.set(ws, { username: msg.username, aesKey: null, rsaPrivateKey: rsaKeys.privateKey });
 
-        await messagesCollection.insertOne(msgObj); // Store in MongoDB
+        // Get all other users
+        const allUsers = await User.find({ username: { $ne: msg.username } }).select('username -_id');
+        const usernames = allUsers.map(u => u.username);
 
-        broadcast(msgObj); // Broadcast to other users
+        ws.send(JSON.stringify({
+          type: 'login-success',
+          publicKey: rsaKeys.publicKey,
+          users: usernames
+        }));
+        return;
+      }
+
+      // ========== AES Key Exchange ==========
+      if (msg.type === 'aes-key') {
+        const client = clients.get(ws);
+        const decryptedAESKey = decryptAESKeyWithRSA(msg.encryptedKey, client.rsaPrivateKey);
+        client.aesKey = decryptedAESKey;
+        return;
+      }
+
+      // ========== ENCRYPTED MESSAGE ==========
+      if (msg.type === 'chat') {
+        const sender = clients.get(ws);
+        if (!sender || !sender.aesKey) return;
+
+        const plainText = decryptMessage(msg.encryptedMessage, sender.aesKey);
+        const logLine = `[${new Date().toLocaleTimeString()}] ${sender.username}: ${plainText}\n`;
+        logChat(sender.username, msg.recipient, logLine);
+
+        for (let client of wss.clients) {
+          const recipient = clients.get(client);
+          if (recipient && recipient.username === msg.recipient && recipient.aesKey && client.readyState === WebSocket.OPEN) {
+            const reEncrypted = encryptMessage(plainText, recipient.aesKey);
+            client.send(JSON.stringify({ type: 'chat', from: sender.username, encryptedMessage: reEncrypted }));
+          }
+        }
+      }
+
+    } catch (err) {
+      console.error('❌ Error:', err);
+      ws.send(JSON.stringify({ type: 'error', message: 'Internal server error.' }));
     }
+  });
 
-    function broadcast(message) {
-        const msgString = JSON.stringify(message);
-        clients.forEach((_clientUsername, client) => {
-            if (client.readyState === WebSocket.OPEN) {
-                client.send(msgString);
-            }
-        });
-    }
-}).catch(err => {
-    console.error('Failed to connect to MongoDB', err);
+  ws.on('close', () => {
+    clients.delete(ws);
+    console.log('🔌 Client disconnected');
+  });
 });
 
+// Logging Function
+function logChat(user1, user2, message) {
+  const sorted = [user1, user2].sort();
+  const filename = `${sorted[0]}_${sorted[1]}_${new Date().toISOString().split('T')[0]}.txt`;
+  const filePath = path.join(__dirname, 'logs', filename);
+  fs.appendFileSync(filePath, message);
+}
+
+server.listen(PORT, () => {
+  console.log(`🚀 SecureChat Server running at https://localhost:${PORT}`);
+});
