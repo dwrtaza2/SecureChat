@@ -45,7 +45,10 @@ wss.on('connection', (ws) => {
 
       // ========== SIGNUP ==========
       if (msg.type === 'signup') {
-        if (!msg.username || !msg.password) return;
+        if (!msg.username || !msg.password) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Username and password are required.' }));
+          return;
+        }
 
         const existing = await User.findOne({ username: msg.username });
         if (existing) {
@@ -63,36 +66,20 @@ wss.on('connection', (ws) => {
 
       // ========== LOGIN ==========
       if (msg.type === 'login') {
-        if (!msg.username || !msg.password) return;
-
-        const locked = bruteForce.isLocked(msg.username);
-        if (locked) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Too many failed attempts. Try again later.' }));
+        if (!msg.username || !msg.password) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Username and password are required.' }));
           return;
         }
 
         const user = await User.findOne({ username: msg.username });
         if (!user || !(await bcrypt.compare(msg.password, user.passwordHash))) {
-          bruteForce.recordFailure(msg.username);
-          ws.send(JSON.stringify({ type: 'error', message: 'Invalid credentials.' }));
+          ws.send(JSON.stringify({ type: 'error', message: 'Invalid username or password.' }));
           return;
         }
 
-        bruteForce.clearFailures(msg.username);
         ws.username = msg.username;
-        const rsaKeys = generateRSAKeys();
-        clients.set(ws, { username: msg.username, aesKey: null, rsaPrivateKey: rsaKeys.privateKey });
-
-        // Get all other users
-        const allUsers = await User.find({ username: { $ne: msg.username } }).select('username -_id');
-        const usernames = allUsers.map(u => u.username);
-
-        ws.send(JSON.stringify({
-          type: 'login-success',
-          publicKey: rsaKeys.publicKey,
-          users: usernames
-        }));
-        return;
+        console.log("Login successful for username:", msg.username);
+        ws.send(JSON.stringify({ type: 'success', message: 'Login successful.' }));
       }
 
       // ========== AES Key Exchange ==========
