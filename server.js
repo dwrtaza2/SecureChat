@@ -78,8 +78,18 @@ wss.on('connection', (ws) => {
         }
 
         ws.username = msg.username;
-        console.log("Login successful for username:", msg.username);
-        ws.send(JSON.stringify({ type: 'success', message: 'Login successful.' }));
+
+        // Fetch all other users except the logged-in user
+        const allUsers = await User.find({ username: { $ne: msg.username } }).select('username -_id');
+        const usernames = allUsers.map(u => u.username);
+
+        console.log("Sending user list:", usernames);
+
+        ws.send(JSON.stringify({
+            type: 'login-success',
+            message: 'Login successful.',
+            users: usernames
+        }));
       }
 
       // ========== AES Key Exchange ==========
