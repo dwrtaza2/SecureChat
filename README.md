@@ -29,6 +29,8 @@ Run the following command inside the project directory:
     npm install dotenv
     npm install mongoose
     npm install bcryptjs crypto-js
+    npm install express
+
 
 4. Generate SSL Certificates
 
